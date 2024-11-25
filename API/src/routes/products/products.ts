@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Variables } from "../../types/HonoVariables.js";
 import { handlePrismaError } from "../../utils/PrismaErrorCatch.js";
 import { Decimal } from "@prisma/client/runtime/library";
-import stringSimilarity from 'string-similarity';
+import * as stringSimilarity from 'string-similarity';
 
 export const ProductsRoutes = new Hono<{ Variables: Variables }>().basePath(
   "/products"
@@ -85,20 +85,20 @@ ProductsRoutes.get("/", async (c) => {
   try {
     const prisma = c.get("prisma");
 
-    // Obtener los parámetros de consulta
-    const page = parseInt(c.req.query("page") || "1", 10); // Página actual, por defecto 1
-    const limit = parseInt(c.req.query("limit") || "10", 10); // Elementos por página, por defecto 10
-    const categoryId = c.req.query("category_id"); // ID de categoría (opcional)
-    const search = c.req.query("search"); // Término de búsqueda (opcional)
-
+    const page = parseInt(c.req.query("page") || "1", 10); 
+    const limit = parseInt(c.req.query("limit") || "10", 10); 
+    const categoryId = c.req.query("category_id"); 
+    const search = c.req.query("search"); 
+    const maxPrice = Number(c.req.query("price")) || 0; 
+    console.log(maxPrice)
     console.log(
       `Page: ${page}, Limit: ${limit}, CategoryID: ${categoryId}, Search: ${search}`
     );
 
-    // Calcular el offset
+ 
     const skip = (page - 1) * limit;
 
-    // Construir el filtro dinámico
+    
     const whereFilter: any = {};
     if (categoryId) {
       whereFilter.category_id = categoryId;
@@ -106,15 +106,38 @@ ProductsRoutes.get("/", async (c) => {
     if (search) {
       whereFilter.OR = [{ name: { contains: search, mode: "insensitive" } }];
     }
+   
+ if (maxPrice > 0) {
+  whereFilter.OR = [
+    {
+      AND: [
+        { price_d1: { lte: maxPrice } },
+        { price_d1: { not: 0 } } 
+      ],
+    },
+    {
+      AND: [
+        { price_olim: { lte: maxPrice } },
+        { price_olim: { not: 0 } } 
+      ],
+    },
+    {
+      AND: [
+        { price_exito: { lte: maxPrice } },
+        { price_exito: { not: 0 } } 
+      ],
+    },
+  ];
+}
 
-    // Consultar los productos con filtro opcional y paginación
+
     const AllProductsList = await prisma.product.findMany({
       where: whereFilter,
       orderBy: {
         created_at: "desc",
       },
-      skip, // Desplazamiento
-      take: limit, // Límite
+      skip, 
+      take: limit, 
     });
 
     const productsFormatted = AllProductsList.map((p) => ({

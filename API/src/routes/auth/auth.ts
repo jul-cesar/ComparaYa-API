@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Variables } from "../../types/HonoVariables.js";
 import { userValidator } from "../../schemas/user.js";
 import { handlePrismaError } from "../../utils/PrismaErrorCatch.js";
-import bcrypt from "bcrypt";
+import * as bcrypt from "bcrypt";
 import { sign } from "hono/jwt";
 import type { User } from "@prisma/client";
 

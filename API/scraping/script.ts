@@ -119,8 +119,6 @@ function getCategoryFromScrapingPage(url: string): string {
   return path;
 }
 
- 
-
 async function findOrCreateCategory(
   categoryName: string
 ): Promise<string | undefined> {
@@ -192,8 +190,6 @@ async function scrap(
           const name = shadowRoot.querySelector<HTMLElement>(nombreSelector);
           const price = shadowRoot.querySelector<HTMLElement>(precioSelector);
 
-          
-
           const productData = {
             name: name?.textContent?.trim() || "N/A",
             image_url: img?.src || "N/A",
@@ -204,22 +200,28 @@ async function scrap(
           };
 
           if (dist === "olimpica") {
-            productData.price_olim = price ?  parseInt(
-              price.innerText.replace("$", "").replace(/\./g, ""),
-              10
-            ) : 0;
+            productData.price_olim = price
+              ? parseInt(
+                  price.innerText.replace("$", "").replace(/\./g, ""),
+                  10
+                )
+              : 0;
           } else if (dist === "d1") {
-            productData.price_d1 = price ?  parseInt(
-              price.innerText.replace("$", "").replace(/\./g, ""),
-              10
-            ) : 0;
+            productData.price_d1 = price
+              ? parseInt(
+                  price.innerText.replace("$", "").replace(/\./g, ""),
+                  10
+                )
+              : 0;
           } else {
-            productData.price_exito = price ?  parseInt(
-              price.innerText.replace("$", "").replace(/\./g, ""),
-              10
-            ) : 0;
+            productData.price_exito = price
+              ? parseInt(
+                  price.innerText.replace("$", "").replace(/\./g, ""),
+                  10
+                )
+              : 0;
           }
-          console.log(productData)
+          console.log(productData);
           return productData;
         });
       },
@@ -231,9 +233,8 @@ async function scrap(
       imgSelector
     );
 
-
     const updatedProducts = await updateProducts(scrappedProductData);
-    console.log(scrappedProductData)
+    console.log(scrappedProductData);
 
     if (updatedProducts) {
       await prisma.product.createMany({
@@ -252,6 +253,19 @@ async function scrap(
 const config = await prisma.scraping_config.findMany({});
 
 for (const conf of config) {
+  if (conf.page_param_name || 0 > 0) {
+    for (let i = 1; i <= Number(conf.page_param_name); i++) {
+      console.log(`Scraping page ${i}`)
+      await scrap(
+        conf.base_url,
+        conf.website_name,
+        conf.card_selector,
+        conf.name_selector,
+        conf.price_selector,
+        conf.img_selector
+      );
+    }
+  }
   await scrap(
     conf.base_url,
     conf.website_name,
