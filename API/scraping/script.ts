@@ -7,8 +7,106 @@ const prisma = new PrismaClient();
 interface Product {
   name: string;
   image_url: string;
-  price: string;
+  price_d1: number;
+  price_olim: number;
+  price_exito: number;
   category_id: string;
+}
+async function autoScroll(page: puppeteer.Page) {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let totalHeight = 0;
+      const scrollInterval = 700;
+      const scrollStep = 700;
+
+      const scrollIntervalId = setInterval(() => {
+        const maxScrollHeight = document.body.scrollHeight;
+        window.scrollBy(0, scrollStep);
+        totalHeight += scrollStep;
+
+        if (totalHeight >= maxScrollHeight) {
+          clearInterval(scrollIntervalId);
+          resolve();
+        }
+      }, scrollInterval);
+    });
+  });
+}
+
+async function updateProducts(products: Product[]) {
+  try {
+    const productsOnDb = await prisma.product.findMany({
+      select: {
+        id: true,
+        category_id: true,
+        image_url: true,
+        name: true,
+        price_d1: true,
+        price_exito: true,
+        price_olim: true,
+      },
+    });
+
+    const productsMap = new Map(
+      productsOnDb.map((p) => [`${p.name.toLowerCase()}_${p.category_id}`, p])
+    );
+
+    const updates = [];
+    const newProducts = [];
+
+    for (const product of products) {
+      const key = `${product.name.toLowerCase()}_${product.category_id}`;
+      const productToUpdate = productsMap.get(key);
+
+      if (!productToUpdate) {
+        newProducts.push(product);
+      } else {
+        const needsUpdate =
+          (product.price_d1 !== 0 &&
+            !new Decimal(product.price_d1).equals(
+              productToUpdate.price_d1 || 0
+            )) ||
+          (product.price_exito !== 0 &&
+            !new Decimal(product.price_exito).equals(
+              productToUpdate.price_exito || 0
+            )) ||
+          (product.price_olim !== 0 &&
+            !new Decimal(product.price_olim).equals(
+              productToUpdate.price_olim || 0
+            )) ||
+          (product.image_url !== "N/A" &&
+            product.image_url !== productToUpdate.image_url);
+
+        if (needsUpdate) {
+          updates.push({
+            id: productToUpdate.id,
+            ...product,
+          });
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      await prisma.$transaction(
+        updates.map((u) =>
+          prisma.product.update({
+            where: { id: u.id },
+            data: {
+              price_d1: u.price_d1,
+              price_olim: u.price_olim,
+              price_exito: u.price_exito,
+              image_url: u.image_url,
+            },
+          })
+        )
+      );
+      console.log(`${updates.length} products updated.`);
+    }
+
+    return newProducts;
+  } catch (error) {
+    console.error("Error updating products:", error);
+  }
 }
 
 function getCategoryFromScrapingPage(url: string): string {
@@ -21,11 +119,7 @@ function getCategoryFromScrapingPage(url: string): string {
   return path;
 }
 
-function formatPrice(priceString: string | null): Decimal {
-  if (!priceString) return new Decimal(0);
-  return new Decimal(priceString.replace("$", "").replace(/\./g, "").trim());
-}
-
+ 
 
 async function findOrCreateCategory(
   categoryName: string
@@ -61,7 +155,7 @@ async function scrap(
   try {
     console.log(`Scraping page: ${url}`);
     const page = await browser.newPage();
-    await page.goto(url);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
     const category = getCategoryFromScrapingPage(url);
     if (!category) {
@@ -76,9 +170,15 @@ async function scrap(
     console.log("Waiting for selectors...");
     await page.waitForSelector(cardSelector, { timeout: 60000 });
 
+    if (dist === "d1" || dist === "exito") {
+      console.log(`Scrolling the page for distributor: ${dist}`);
+      await autoScroll(page);
+    }
+
     const scrappedProductData: Product[] = await page.evaluate(
       (
         categoryId: string,
+        dist: string,
         cardSelector: string,
         nombreSelector: string,
         precioSelector: string,
@@ -92,32 +192,52 @@ async function scrap(
           const name = shadowRoot.querySelector<HTMLElement>(nombreSelector);
           const price = shadowRoot.querySelector<HTMLElement>(precioSelector);
 
-          return {
+          
+
+          const productData = {
             name: name?.textContent?.trim() || "N/A",
             image_url: img?.src || "N/A",
-            price: price?.textContent?.trim() || "0",
+            price_d1: 0,
+            price_olim: 0,
+            price_exito: 0,
             category_id: categoryId,
           };
+
+          if (dist === "olimpica") {
+            productData.price_olim = price ?  parseInt(
+              price.innerText.replace("$", "").replace(/\./g, ""),
+              10
+            ) : 0;
+          } else if (dist === "d1") {
+            productData.price_d1 = price ?  parseInt(
+              price.innerText.replace("$", "").replace(/\./g, ""),
+              10
+            ) : 0;
+          } else {
+            productData.price_exito = price ?  parseInt(
+              price.innerText.replace("$", "").replace(/\./g, ""),
+              10
+            ) : 0;
+          }
+          console.log(productData)
+          return productData;
         });
       },
       categoryId,
+      dist,
       cardSelector,
       nombreSelector,
       precioSelector,
       imgSelector
     );
 
-    console.log("Scraped data:", scrappedProductData);
 
-    for (const product of scrappedProductData) {
-      await prisma.product.create({
-        data: {
-          name: product.name,
-          image_url: product.image_url,
-          price: formatPrice(product.price),
-          category_id: product.category_id,
-          distributor: dist,
-        },
+    const updatedProducts = await updateProducts(scrappedProductData);
+    console.log(scrappedProductData)
+
+    if (updatedProducts) {
+      await prisma.product.createMany({
+        data: updatedProducts,
       });
     }
 
@@ -127,4 +247,17 @@ async function scrap(
   } finally {
     await browser.close();
   }
+}
+
+const config = await prisma.scraping_config.findMany({});
+
+for (const conf of config) {
+  await scrap(
+    conf.base_url,
+    conf.website_name,
+    conf.card_selector,
+    conf.name_selector,
+    conf.price_selector,
+    conf.img_selector
+  );
 }

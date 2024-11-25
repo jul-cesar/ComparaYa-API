@@ -5,9 +5,12 @@ import { Auth } from "./routes/auth/auth.js";
 import { logger } from "hono/logger";
 import { PrismaClient } from "@prisma/client";
 import { jwt } from "hono/jwt";
+import { ProductsRoutes } from "./routes/products/products.js";
+import { CategoriesRoutes } from "./routes/categories/categories.js";
 
-const app = new Hono<{ Variables: Variables }>().basePath("/api");
 const prisma = new PrismaClient();
+const app = new Hono<{ Variables: Variables }>().basePath("/api");
+
 const rutasPublicas = ["/api/auth/register", "/api/auth/login"];
 const JWT_SECRET = process.env.JWT_SECRET || "";
 
@@ -31,6 +34,8 @@ app.get("/", (c) => {
 app.use(logger());
 
 app.route("/", Auth);
+app.route("/", ProductsRoutes)
+app.route("/", CategoriesRoutes)
 
 const port = 3000;
 console.log(`Server is running on http://localhost:${port}`);

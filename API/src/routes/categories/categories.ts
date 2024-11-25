@@ -14,10 +14,7 @@ CategoriesRoutes.get("/", async (c) => {
         created_at: "desc",
       },
     });
-    c.json({
-      message: "Categories found successfully",
-      data: AllCategoriesList,
-    });
+    return c.json(AllCategoriesList);
   } catch (error) {
     const prismaError = handlePrismaError(error);
     console.error("Error creating service:", prismaError);
